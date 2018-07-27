@@ -1,0 +1,104 @@
+---
+title: "SCnorm Tutorial"
+author: "Rhonda Bacher"
+date: "6/22/2018"
+output:
+  html_document: default
+package: SCnorm
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Download SCnorm:
+
+
+```{r,  results='hide', cache=TRUE}
+source("https://bioconductor.org/biocLite.R")
+biocLite("SCnorm")
+
+library(SCnorm)
+```
+
+The data included here was downloaded directly from GEO:
+https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE85917
+
+File: GSE85917_Bacher.RSEM.xlsx
+
+```{r, echo=FALSE, cache=TRUE}
+setwd("~/Downloads") 
+library(readxl)
+h1cells.4M <- data.frame(read_excel("GSE85917_Bacher.RSEM.xlsx", sheet=1), stringsAsFactors=F, row.names = 1)
+h1cells.1M <- data.frame(read_excel("GSE85917_Bacher.RSEM.xlsx", sheet=2), stringsAsFactors=F, row.names = 1)
+```
+
+### Plot the count-depth relationship
+
+The count-depth relationship is the dependence of read counts on the sequencing depth (total number of reads per cell). The amount each cell is sequenced is a technical artifact that affects the gene counts. Typically as cells are sequenced more, all gene counts should increase proportionally. Below is an example of a gene with a strong count-depth relationship:
+
+```{r, fig.height=4, fig.width=6, cache=TRUE}
+seqDepth <- colSums(h1cells.1M)
+plot(log(seqDepth), log(h1cells.1M["PTEN",]), pch=20, cex=1.5, xlab="log Sequencing Depth", ylab="log Expression", main="PTEN")
+```
+
+In single-cell RNA-seq not all genes have similar count-depth relationships. We see that they vary by expression level. For example, here is a gene with almost no dependence on sequencing depth:
+
+```{r, fig.height=4, fig.width=6, cache=TRUE}
+seqDepth <- colSums(h1cells.1M)
+plot(log(seqDepth), log(h1cells.1M["ADCY6",]), pch=20, cex=1.5, xlab="log Sequencing Depth", ylab="log Expression", main="ADCY6")
+```
+
+The count-depth relationship is estimated for every gene by SCnorm using a median quantile regression on the non-zeros:
+
+```{r, fig.height=4, fig.width=10, cache=TRUE}
+cdr.1M <- plotCountDepth(Data = h1cells.1M, Conditions = rep("1M", ncol(h1cells.1M)))
+```
+
+
+```{r, fig.height=4, fig.width=10, cache=TRUE}
+cdr.4M <- plotCountDepth(Data = h1cells.4M, Conditions = rep("4M", ncol(h1cells.4M)))
+```
+
+
+Other normalization methods estimate only one scale factor per cell. When the count-depth relationship varies this is not ideal and leads to poor normalization. For example if we apply a total count normalization method, i.e. CPM (Counts Per Million):
+
+```{r, fig.height=4, fig.width=6, cache=TRUE}
+scaleFactors <- colSums(h1cells.1M) / 1e6
+norm.h1cells.1M = t(t(h1cells.1M)/scaleFactors)
+
+cdr.1M.norm <- plotCountDepth(Data = h1cells.1M, NormalizedData =  norm.h1cells.1M, Conditions = rep("1M", ncol(h1cells.1M)))
+```
+
+Clearly the slopes are not all equal to zero. This is also obvious if we look at individual genes that are under- and over- normalized:
+
+```{r, fig.height=4, fig.width=12, cache=TRUE}
+seqDepth <- colSums(h1cells.1M)
+par(mfrow=c(1,2))
+plot(log(seqDepth), log(norm.h1cells.1M["PTEN",]), pch=20, cex=1.5, xlab="log Sequencing Depth", ylab="log Normalized Expression", main="PTEN")
+plot(log(seqDepth), log(norm.h1cells.1M["ADCY6",]), pch=20, cex=1.5, xlab="log Sequencing Depth", ylab="log Normalized Expression", main="ADCY6")
+
+```
+
+```
+
+To normalize the data using SCnorm, each gene will be placed into a group based on its count-depth relationship. The normalization is an iterative process, and the number of groups starts at K = 1. For each value of K, the normalized count-depth relationship is evaluated and if most genes are near zero then the current K is sufficient. If not, then K is increased to K + 1.
+
+```{r, fig.height=4, fig.width=6, cache=TRUE}
+Conditions <- rep("1M", ncol(h1cells.1M))
+myNormData <- SCnorm(Data = h1cells.1M, Conditions = Conditions, PrintProgressPlots = TRUE, reportSF = TRUE)
+```
+
+
+The normalized data is assessible through the results function:
+
+```{r, cache=TRUE}
+normData <- results(myNormData, type = c("NormalizedData"))
+genesOUT <- results(myNormData, type = c("GenesFilteredOut"))
+scaleFactors <- results(myNormData, type = c("ScaleFactors"))
+```
+
+
+
+
